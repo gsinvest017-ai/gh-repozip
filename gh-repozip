@@ -55,7 +55,14 @@ gh auth status >/dev/null 2>&1 || { echo "錯誤：gh 未登入，請先執行 g
 
 # --- 取得 repo 清單 ---
 echo "查詢 $TARGET 的 repo 清單（上限 $LIMIT）..."
-mapfile -t repos < <(gh repo list "$TARGET" --limit "$LIMIT" --json nameWithOwner -q '.[].nameWithOwner')
+if ! repos_raw=$(gh repo list "$TARGET" --limit "$LIMIT" --json nameWithOwner -q '.[].nameWithOwner'); then
+    echo "錯誤：gh repo list 失敗（帳號不存在、權限不足或網路問題）" >&2
+    exit 1
+fi
+repos=()
+if [[ -n "$repos_raw" ]]; then
+    mapfile -t repos <<<"$repos_raw"
+fi
 total=${#repos[@]}
 (( total > 0 )) || { echo "錯誤：$TARGET 沒有可見的 repo（或帳號不存在）" >&2; exit 1; }
 echo "找到 $total 個 repo"

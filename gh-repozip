@@ -45,7 +45,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$TARGET" ]] || { usage >&2; exit 1; }
-[[ "$LIMIT" =~ ^[0-9]+$ ]] || { echo "錯誤：--limit 必須是正整數" >&2; exit 1; }
+[[ "$LIMIT" =~ ^[1-9][0-9]*$ ]] || { echo "錯誤：--limit 必須是正整數" >&2; exit 1; }
 
 # --- 依賴檢查 ---
 for cmd in gh git zip; do

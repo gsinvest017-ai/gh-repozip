@@ -10,7 +10,7 @@ gh extension install gsinvest017-ai/gh-repozip
 
 ## 用法
 
-```
+```bash
 gh repozip <user-or-org> [-o <輸出目錄>] [--limit N]
 ```
 
@@ -27,7 +27,7 @@ gh repozip <user-or-org> [-o <輸出目錄>] [--limit N]
 
 ```bash
 gh repozip torvalds -o ~/backups
-# → ~/backups/torvalds-repos-20260607.zip
+# → ~/backups/torvalds-repos-<YYYYMMDD>.zip （日期為執行當天）
 ```
 
 ## 行為說明

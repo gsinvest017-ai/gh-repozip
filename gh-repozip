@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# gh-repozip — 下載指定 user/org 的所有 repo（含完整 git 歷史）打包成單一 zip
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+用法: gh repozip <user-or-org> [-o <輸出目錄>] [--limit N]
+
+一鍵下載指定 GitHub user / org 的所有 repo（含完整 git 歷史），
+打包成單一 zip：<user>-repos-<YYYYMMDD>.zip
+
+參數:
+  <user-or-org>        GitHub username 或 org 名稱（必填）。
+                       若為登入帳號本人且 token 有權限，自動包含 private repo。
+  -o, --output <dir>   zip 輸出目錄（預設：當前目錄；不存在自動建立）
+  --limit N            最多抓取 N 個 repo（預設：1000）
+  -h, --help           顯示本說明
+
+範例:
+  gh repozip torvalds -o ~/backups
+  → ~/backups/torvalds-repos-20260607.zip
+EOF
+}
+
+TARGET=""
+OUTPUT_DIR="."
+LIMIT=1000
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -o|--output)
+            [[ $# -ge 2 ]] || { echo "錯誤：$1 需要參數" >&2; exit 1; }
+            OUTPUT_DIR="$2"; shift 2 ;;
+        --limit)
+            [[ $# -ge 2 ]] || { echo "錯誤：--limit 需要參數" >&2; exit 1; }
+            LIMIT="$2"; shift 2 ;;
+        -h|--help)
+            usage; exit 0 ;;
+        -*)
+            echo "錯誤：未知選項 $1" >&2; usage >&2; exit 1 ;;
+        *)
+            if [[ -z "$TARGET" ]]; then TARGET="$1"; shift
+            else echo "錯誤：多餘的參數 $1" >&2; usage >&2; exit 1; fi ;;
+    esac
+done
+
+[[ -n "$TARGET" ]] || { usage >&2; exit 1; }
+[[ "$LIMIT" =~ ^[0-9]+$ ]] || { echo "錯誤：--limit 必須是正整數" >&2; exit 1; }
+
+# --- 依賴檢查 ---
+for cmd in gh git zip; do
+    command -v "$cmd" >/dev/null 2>&1 || { echo "錯誤：找不到 $cmd，請先安裝" >&2; exit 1; }
+done
+gh auth status >/dev/null 2>&1 || { echo "錯誤：gh 未登入，請先執行 gh auth login" >&2; exit 1; }
+
+# --- 取得 repo 清單 ---
+echo "查詢 $TARGET 的 repo 清單（上限 $LIMIT）..."
+mapfile -t repos < <(gh repo list "$TARGET" --limit "$LIMIT" --json nameWithOwner -q '.[].nameWithOwner')
+total=${#repos[@]}
+(( total > 0 )) || { echo "錯誤：$TARGET 沒有可見的 repo（或帳號不存在）" >&2; exit 1; }
+echo "找到 $total 個 repo"
+
+# --- 暫存目錄 + 清理 trap ---
+WORKDIR=$(mktemp -d)
+trap 'rm -rf "$WORKDIR"' EXIT INT TERM
+
+# --- 逐一 clone（完整歷史）---
+failed=()
+i=0
+for r in "${repos[@]}"; do
+    i=$((i + 1))
+    name=${r#*/}
+    echo "[$i/$total] cloning $r ..."
+    if ! gh repo clone "$r" "$WORKDIR/$TARGET/$name" -- --quiet; then
+        echo "  ⚠ clone 失敗：$r" >&2
+        failed+=("$r")
+    fi
+done
+
+cloned=$(( total - ${#failed[@]} ))
+(( cloned > 0 )) || { echo "錯誤：所有 repo 都 clone 失敗" >&2; exit 1; }
+
+# --- 壓縮 ---
+mkdir -p "$OUTPUT_DIR"
+zipname="${TARGET}-repos-$(date +%Y%m%d).zip"
+echo "壓縮 $cloned 個 repo 成 $zipname ..."
+(cd "$WORKDIR" && zip -r -q "$zipname" "$TARGET")
+mv "$WORKDIR/$zipname" "$OUTPUT_DIR/$zipname"
+
+# --- 總結 ---
+zip_path=$(cd "$OUTPUT_DIR" && pwd)/$zipname
+zip_size=$(du -h "$zip_path" | cut -f1)
+echo ""
+echo "完成：$zip_path（$zip_size，$cloned/$total 個 repo）"
+if (( ${#failed[@]} > 0 )); then
+    echo "以下 repo clone 失敗：" >&2
+    printf '  - %s\n' "${failed[@]}" >&2
+    exit 2
+fi
